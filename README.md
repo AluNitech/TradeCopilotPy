@@ -14,7 +14,8 @@
 - 投資判断（5段階: 強い買い/買い/ホールド/売り/強い売り）と理由・リスク・目標価格をExcelに保存
 - 並列処理（スレッド）で高速化
 - Excelの列幅自動調整、ヘッダー装飾、カテゴリ色分け、折返し、フィルタ・フリーズペイン
-- <img width="1562" height="752" alt="image" src="https://github.com/user-attachments/assets/3f81c3df-e018-4760-8eac-62456ef00f0d" />
+- <img width="1627" height="768" alt="image" src="https://github.com/user-attachments/assets/f88ef1e2-36df-4c8f-b05e-207deaec5c6c" />
+
 
 
 ## プロジェクト構成（概要）
