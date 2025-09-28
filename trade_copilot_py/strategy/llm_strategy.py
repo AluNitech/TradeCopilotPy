@@ -274,12 +274,61 @@ def summarize_market_data(multi_data: Dict[str, pd.DataFrame]) -> Dict[str, Any]
     }
 
 
-def _build_prompt(ticker: str, summary: Dict[str, Any], objective: Optional[str] = None) -> str:
+def _flatten_columns_to_str(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    列名を文字列にフラット化（MultiIndex対応）
+    """
+    df2 = df.copy()
+    if isinstance(df2.columns, pd.MultiIndex):
+        df2.columns = [" | ".join([str(x) for x in col]) for col in df2.columns.to_list()]
+    else:
+        df2.columns = [str(c) for c in df2.columns]
+    return df2
+
+
+def _df_to_records(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    DataFrameをJSONレコード配列に変換（日時はISO文字列）
+    """
+    if df is None or df.empty:
+        return {"columns": [], "records": [], "count": 0}
+
+    df2 = _flatten_columns_to_str(df).reset_index()
+    # pandasのto_jsonでISO文字列に変換し、それをPythonオブジェクトへ戻す
+    try:
+        records = json.loads(df2.to_json(orient="records", date_format="iso", force_ascii=False))
+    except Exception:
+        # フォールバック: 非シリアライズ型を文字列化
+        records = []
+        for _, row in df2.iterrows():
+            obj = {}
+            for k, v in row.to_dict().items():
+                try:
+                    json.dumps(v)  # そのままいけるか確認
+                    obj[str(k)] = v
+                except Exception:
+                    obj[str(k)] = str(v)
+            records.append(obj)
+    return {"columns": list(df2.columns), "records": records, "count": len(records)}
+
+
+def raw_market_data(multi_data: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
+    """
+    stock_data.get_multi_timeframe_data() が返す各時間軸の DataFrame を生データとしてJSONレコード化
+    """
+    return {
+        "daily": _df_to_records(multi_data.get("daily", pd.DataFrame())),
+        "hourly": _df_to_records(multi_data.get("hourly", pd.DataFrame())),
+        "minute": _df_to_records(multi_data.get("minute", pd.DataFrame())),
+    }
+
+
+def _build_prompt(ticker: str, data_payload: Dict[str, Any], objective: Optional[str] = None) -> str:
     """
     LLMに投げるプロンプトを構築（JSON出力を指示）
     """
     instructions = f"""
-あなたはプロのトレーディングアシスタントです。銘柄 {ticker} のマルチタイムフレームの要約統計に基づいて、
+あなたはプロのトレーディングアシスタントです。銘柄 {ticker} のマルチタイムフレームの生データ（各行をJSONレコード）に基づいて、
 5段階（強い買い/買い/ホールド/売り/強い売り）の投資判断を日本語の理由付きで行い、JSONのみで出力してください。
 
 要件:
@@ -296,8 +345,8 @@ def _build_prompt(ticker: str, summary: Dict[str, Any], objective: Optional[str]
 - リスクも2-4点程度で簡潔に
 - {('目的: ' + objective) if objective else ''}
 
-入力データ要約:
-{json.dumps(summary, ensure_ascii=False, indent=2)}
+入力データ（生）:
+{json.dumps(data_payload, ensure_ascii=False, indent=2)}
 """
     return instructions.strip()
 
@@ -492,8 +541,8 @@ def advise_from_data(
     Returns:
         InvestmentDecision: 構造化された投資判断
     """
-    summary = summarize_market_data(multi_data)
-    prompt = _build_prompt(ticker, summary, objective)
+    data_payload = raw_market_data(multi_data)
+    prompt = _build_prompt(ticker, data_payload, objective)
 
     backend = (prefer_backend or "").lower().strip()
     use_langchain = backend == "langchain"
